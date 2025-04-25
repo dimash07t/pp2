@@ -1,0 +1,85 @@
+-- 1. Поиск по шаблону
+CREATE OR REPLACE FUNCTION search_pattern(p_pattern TEXT)
+RETURNS TABLE(user_id INT, name TEXT, surname TEXT, phone TEXT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.user_id,
+        p.name,
+        p.surname,
+        p.phone
+    FROM phonebook p
+    WHERE p.name ILIKE '%' || p_pattern || '%'
+       OR p.surname ILIKE '%' || p_pattern || '%'
+       OR p.phone ILIKE '%' || p_pattern || '%';
+END;
+$$ LANGUAGE plpgsql;
+
+-- 2. Вставка или обновление пользователя
+CREATE OR REPLACE PROCEDURE insert_or_update_user(p_name TEXT, p_surname TEXT, p_phone TEXT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM phonebook WHERE name = p_name) THEN
+        UPDATE phonebook 
+        SET phone = p_phone, surname = p_surname 
+        WHERE name = p_name;
+    ELSE
+        INSERT INTO phonebook(name, surname, phone) 
+        VALUES (p_name, p_surname, p_phone);
+    END IF;
+END;
+$$;
+
+-- 3. Массовая вставка с возвратом неверных данных
+CREATE OR REPLACE FUNCTION insert_many_users_return_invalid(
+    p_names TEXT[],
+    p_surnames TEXT[],
+    p_phones TEXT[]
+)
+RETURNS TABLE(name TEXT, surname TEXT, phone TEXT) AS $$
+DECLARE
+    i INT := 1;
+BEGIN
+    IF array_length(p_names, 1) != array_length(p_surnames, 1) 
+       OR array_length(p_names, 1) != array_length(p_phones, 1) THEN
+        RAISE EXCEPTION 'Arrays must have the same length';
+    END IF;
+
+    WHILE i <= array_length(p_names, 1) LOOP
+        IF p_phones[i] ~ '^\d{11}$' THEN
+            INSERT INTO phonebook(name, surname, phone)
+            VALUES (p_names[i], p_surnames[i], p_phones[i]);
+        ELSE
+            name := p_names[i];
+            surname := p_surnames[i];
+            phone := p_phones[i];
+            RETURN NEXT;
+        END IF;
+        i := i + 1;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 4. Пагинация
+CREATE OR REPLACE FUNCTION get_paginated(limit_value INT, offset_value INT)
+RETURNS TABLE(user_id INT, name TEXT, surname TEXT, phone TEXT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.user_id, 
+        p.name, 
+        p.surname, 
+        p.phone
+    FROM phonebook p
+    LIMIT limit_value OFFSET offset_value;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 5. Удаление по значению
+CREATE OR REPLACE PROCEDURE delete_by_name_or_phone(p_value TEXT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM phonebook 
+    WHERE name ILIKE p_value OR phone ILIKE p_value;
+END;
+$$;
